@@ -1,251 +1,341 @@
-# PLANNER.md — Formix
+# Formify — Planner
 
-> Living technical document. Updated on `update repo`.
-> Last updated: 2026-04-29
+> Premium dark-UI form builder with anti-cheat quiz protection and response analytics, built free-first for personal use, ready to monetize publicly without touching code.
 
----
+## Project Overview
 
-## Overview
+**Purpose.** Formify replaces Google Forms with a premium dark-UI experience — real interactivity, landing-page-quality form fill pages, tab-switch detection for quiz integrity, and proper response analytics with multi-format export. Every competitor either looks bad (Google Forms, Tally) or charges too much (Typeform, Fillout). Formify fills the gap.
 
-| Field | Value |
-|---|---|
-| Project | **Formix** |
-| Purpose | SaaS platform for creating, sharing, and managing forms for organizations and events with exportable responses |
-| Target User | Organizations, event teams, clubs, and businesses that need to collect structured data |
-| Key Value | Full form lifecycle: build → share → collect → export — all in one dark, clean dashboard |
-| Status | 🔄 Phase 8 next (landing page) |
-| Repo | `github.com/mahtamun-hoque-fahim/formix` |
-| Live URL | `formix.vercel.app` |
+**Target user.** Anyone currently using Google Forms who needs quizzes they can trust, data collection with visual feedback, or forms that look like a real product — teachers, HR teams, indie builders, researchers.
+
+**Key value.** Build a form that looks premium, protects quiz integrity with tab-switch detection, and gives respondents a smooth fill experience — all free, all in one place.
+
+**Current phase.** Planning
 
 ---
 
 ## Architecture
 
 **Stack:**
-- Framework: Next.js 16 App Router (TypeScript)
-- Styling: Tailwind CSS v4
-- Database: Neon (PostgreSQL) via Drizzle ORM
-- Auth: Clerk (publicMetadata.role for admin vs. user)
-- File Storage: Cloudinary (Phase 7 — currently stores filename only)
-- Email: Resend (Phase 7 — submission notifications)
-- Export: xlsx (Excel), jspdf + jspdf-autotable (PDF), native (CSV, JSON)
-- Deployment: Vercel
+- Framework: Next.js 16 App Router
+- Language: TypeScript (strict)
+- Styling: Tailwind CSS v4 + CSS variables
+- Database: Neon (PostgreSQL) via neon-http driver
+- ORM: Drizzle ORM
+- Auth: Better Auth (email/password)
+- Email: Resend
+- Media: Cloudinary (form image uploads)
+- Rate limiting: Upstash Redis
+- Payments: Lemon Squeezy (stubbed — not wired until public launch)
+- Deployment: Vercel (primary) + Cloudflare Workers via @opennextjs/cloudflare
 
-**Folder Structure:**
+**Deployment topology:**
+- `main` → Vercel production
+- PRs → Vercel preview
+- `main` → Cloudflare Workers (mirror via @opennextjs/cloudflare)
+- Edge Runtime required on every route — neon-http driver only, no node-postgres
+
+**Folder structure:**
 ```
-/
-├── app/
-│   ├── (auth)/                         # Clerk sign-in / sign-up
-│   ├── (public)/f/[slug]/              # Public respondent form + thank-you
-│   ├── dashboard/                      # User dashboard (Clerk-gated)
-│   │   ├── page.tsx                    # Overview stats + recent activity
-│   │   └── forms/
-│   │       ├── page.tsx                # Forms list
-│   │       ├── new/page.tsx            # Create form
-│   │       └── [id]/
-│   │           ├── page.tsx            # Builder (BuilderClient)
-│   │           ├── responses/page.tsx  # Responses (ResponsesClient)
-│   │           └── settings/page.tsx   # Settings (SettingsClient)
-│   ├── admin/                          # Admin-gated
-│   │   ├── page.tsx                    # Platform overview
-│   │   ├── users/page.tsx              # User management
-│   │   └── forms/page.tsx              # All forms audit
-│   └── api/
-│       ├── forms/...                   # Full CRUD + fields + reorder + status
-│       ├── submissions/route.ts        # POST public submit
-│       ├── export/[id]/route.ts        # GET csv|json|xlsx|pdf
-│       ├── admin/users/, admin/forms/, admin/stats/
-│       └── webhooks/clerk/route.ts
-├── components/
-│   ├── ui/          # Button, Input, Textarea, Select, Modal, Badge
-│   ├── builder/     # FieldPalette, BuilderCanvas, FieldBlock, FieldEditor
-│   ├── form-renderer/  # FormRenderer (16 field types)
-│   ├── responses/   # ResponsesClient, SubmissionDrawer, ResponseSummary
-│   ├── settings/    # SettingsClient
-│   ├── admin/       # AdminUsersClient, AdminUserDrawer
-│   └── dashboard/   # Sidebar
-├── lib/
-│   ├── db/schema/   # users, forms, form_fields, form_submissions, field_responses
-│   ├── export/      # excel.ts, pdf.ts
-│   ├── clerk.ts     # requireAuth, requireAdmin, getRole
-│   ├── field-types.ts
-│   └── utils.ts
-├── middleware.ts
-└── .env.example
+app/
+  (auth)/          login, signup, forgot-password, reset-password
+  (public)/        landing page /
+  dashboard/       authenticated app shell
+    forms/
+      new/         form builder
+      [id]/
+        responses/ response viewer
+        settings/  form settings
+    templates/     template library
+    analytics/     aggregate analytics
+    settings/      account settings
+  f/[slug]/        public form fill page
+    submitted/     thank you page
+  admin/
+    users/
+    forms/
+  api/             route handlers
+components/
+  ui/              primitives (button, input, badge, card)
+  builder/         form builder drag-and-drop components
+  fill/            respondent-facing form renderer
+  dashboard/       dashboard layout and sections
+lib/
+  db/              schema.ts, index.ts (lazy getDb)
+  auth/            better-auth config
+  utils/           helpers
+drizzle/           generated migrations
+public/
 ```
-
----
-
-## Roles & Permissions
-
-| Role | Set Via | Access |
-|---|---|---|
-| `user` | Default on signup | Own dashboard, forms, responses |
-| `admin` | Clerk Dashboard → publicMetadata → `{"role":"admin"}` | Everything + /admin/*, all users, all forms |
 
 ---
 
 ## User Flows
 
-### Build & Publish
-1. `/dashboard/forms/new` → title → form created (draft)
-2. Builder → drag fields from palette → click to configure in FieldEditor
-3. Publish → status: published → copy `/f/[slug]`
+### Flow 1: Creator builds and shares a form
+1. Lands on `/` → clicks "Get started"
+2. Signs up at `/signup` → Better Auth creates user with `role: user`, `plan: free`
+3. Redirected to `/dashboard` → sees empty state with "Create your first form" CTA
+4. Clicks → taken to `/dashboard/forms/new` (builder)
+5. Drags fields onto canvas, configures settings, sets form title and slug
+6. Optionally enables quiz mode → tab-switch detection toggle appears in settings
+7. Publishes form → `/f/[slug]` is live
+8. Shares link with respondents
+9. Views responses at `/dashboard/forms/[id]/responses` → charts + export
 
-### Respondent Submits
-1. Opens `/f/[slug]` → FormRenderer with all 16 field types
-2. Client-side validation → POST `/api/submissions`
-3. Server validates: published, not expired, under limit, required fields
-4. Shows success message or redirects to `redirectUrl`
+### Flow 2: Respondent fills a form
+1. Opens `/f/[slug]` — no account needed
+2. Sees progress bar (if enabled), fills fields one by one or all at once
+3. If quiz mode is active: warned upfront that focus monitoring is on
+4. On tab switch / window blur: violation logged; first = warning overlay, second = flag, third = auto-submit
+5. Submits → redirected to `/f/[slug]/submitted` (thank you page)
 
-### View & Export
-1. `/dashboard/forms/[id]/responses` → Responses tab (table) or Summary tab (charts)
-2. Click row → SubmissionDrawer → view all answers + inline delete
-3. Export: CSV / JSON / XLSX / PDF buttons
+### Flow 3: Creator exports responses
+1. Opens `/dashboard/forms/[id]/responses`
+2. Views response table + summary charts (pie for MCQ, bar for ratings, text list for open-ended)
+3. Clicks export → picks format: CSV, Excel (.xlsx), PDF, Google Sheets
+4. File downloads immediately (CSV/Excel/PDF) or opens Sheets import flow
 
-### Admin
-1. `/admin` → platform stats + 30d/7d growth + recent signups/submissions
-2. `/admin/users` → search/filter → click user → AdminUserDrawer (role/plan/active toggles)
-3. `/admin/forms` → all forms with owner info + response counts
+### Flow 4: Admin manages platform
+1. Signs in as admin (`role: admin`)
+2. Lands on `/admin` → platform stats
+3. Navigates to `/admin/users` → can suspend or delete accounts
+4. Navigates to `/admin/forms` → can view or delete any form
+5. Admin accounts have no response limits, no plan gating, ever
 
 ---
 
 ## DB Schema
 
-```ts
-users            id(text PK), email, name, avatarUrl, role, plan, isActive, createdAt, updatedAt
-forms            id(uuid PK), userId→users, title, description, slug(unique), status, accentColor,
-                 allowMultipleSubmissions, requireAuth, submissionLimit, startsAt, endsAt,
-                 successMessage, redirectUrl, notifyOnSubmission, createdAt, updatedAt
-form_fields      id(uuid PK), formId→forms, type, label, placeholder, helpText,
-                 isRequired, order, options(jsonb), createdAt
-form_submissions id(uuid PK), formId→forms, respondentId, respondentEmail, ipAddress, userAgent, submittedAt
-field_responses  id(uuid PK), submissionId→form_submissions, fieldId→form_fields, value(text), createdAt
-```
+Schema lives in `lib/db/schema.ts`.
 
-**options jsonb shape per field type:**
-- dropdown / radio / checkbox: `{ choices: string[] }`
-- rating: `{ min: 1, max: 5 }`
-- number: `{ min?, max?, step? }`
-- file_upload: `{ maxSizeMb: number, allowedTypes: string[] }`
+### users
+| column | type | notes |
+|---|---|---|
+| id | text PK | nanoid |
+| email | text unique | |
+| name | text | |
+| role | enum | `user` \| `admin` |
+| plan | enum | `free` \| `pro` \| `team` — default `free`; admin always bypasses limits regardless of plan |
+| emailVerified | boolean | default false |
+| createdAt | timestamp | defaultNow |
+| updatedAt | timestamp | |
 
-**value encoding in field_responses:**
-- checkbox: `JSON.stringify(string[])`
-- yes_no: `"yes"` | `"no"`
-- file_upload: filename (Phase 7 → Cloudinary URL)
-- all others: raw string
+### sessions / accounts / verifications
+Standard Better Auth tables. See Better Auth docs.
+
+### forms
+| column | type | notes |
+|---|---|---|
+| id | text PK | nanoid |
+| userId | text FK → users.id | cascade delete |
+| title | text | |
+| slug | text unique | URL-safe, user-editable |
+| description | text | nullable |
+| fields | jsonb | ordered array of field definitions |
+| settings | jsonb | quiz mode, tab detection threshold, deadline, password, theme |
+| isPublished | boolean | default false |
+| responseCount | integer | default 0 — incremented on each submission; used for plan limit checks |
+| deletedAt | timestamp | nullable — soft delete |
+| createdAt | timestamp | defaultNow |
+| updatedAt | timestamp | |
+
+### responses
+| column | type | notes |
+|---|---|---|
+| id | text PK | nanoid |
+| formId | text FK → forms.id | cascade delete |
+| answers | jsonb | map of fieldId → answer value |
+| violations | jsonb | array of tab-switch events: `{ timestamp, type: 'blur'\|'visibility' }` |
+| submittedAt | timestamp | defaultNow |
+| deletedAt | timestamp | nullable — soft delete; must cascade via owner-delete flow |
+| ipHash | text | nullable — hashed respondent IP for abuse detection |
+
+### templates
+| column | type | notes |
+|---|---|---|
+| id | text PK | nanoid |
+| title | text | |
+| description | text | |
+| category | text | e.g. "quiz", "survey", "contact", "registration" |
+| fields | jsonb | pre-filled field definitions |
+| previewImage | text | Cloudinary URL |
+| isPublic | boolean | default true |
+| createdAt | timestamp | defaultNow |
 
 ---
 
 ## API Routes
 
-| Method | Path | Auth | Notes |
-|---|---|---|---|
-| GET | `/api/forms` | User | Own forms list |
-| POST | `/api/forms` | User | Create + auto-slug |
-| GET/PUT/DELETE | `/api/forms/[id]` | Owner | Full form CRUD |
-| PATCH | `/api/forms/[id]/status` | Owner | draft/published/closed |
-| GET/POST | `/api/forms/[id]/fields` | Owner | Field list + add |
-| PUT/DELETE | `/api/forms/[id]/fields/[fid]` | Owner | Edit/remove field |
-| PATCH | `/api/forms/[id]/fields/reorder` | Owner | dnd-kit order sync |
-| GET | `/api/forms/slug/[slug]` | Public | Published form for renderer |
-| POST | `/api/submissions` | Public | Create submission + field_responses |
-| DELETE | `/api/forms/[id]/submissions/[sid]` | Owner | Delete submission (cascades) |
-| GET | `/api/export/[id]?format=` | Owner | csv / json / xlsx / pdf |
-| POST | `/api/upload` | User | Cloudinary upload (Phase 7) |
-| POST | `/api/webhooks/clerk` | Webhook | User sync |
-| GET | `/api/admin/users` | Admin | All users + counts |
-| PATCH | `/api/admin/users/[uid]` | Admin | role / plan / isActive |
-| GET | `/api/admin/forms` | Admin | All forms + owner |
-| GET | `/api/admin/stats` | Admin | Platform totals + growth |
+| Method | Path | Auth | Body | Response |
+|---|---|---|---|---|
+| GET | /api/forms | session | — | Form[] (user's own) |
+| POST | /api/forms | session | `{ title, slug?, fields, settings }` | Form |
+| GET | /api/forms/[id] | session + owner | — | Form |
+| PATCH | /api/forms/[id] | session + owner | `{ title?, slug?, fields?, settings?, isPublished? }` | Form |
+| DELETE | /api/forms/[id] | session + owner | — | `{ ok: true }` (soft delete) |
+| GET | /api/forms/[id]/responses | session + owner | — | Response[] |
+| DELETE | /api/forms/[id]/responses | session + owner | — | `{ ok: true }` (bulk soft delete) |
+| GET | /api/forms/[id]/export | session + owner | `?format=csv\|xlsx\|pdf` | file download |
+| POST | /api/f/[slug] | public | `{ answers, violations? }` | `{ ok: true, submittedAt }` |
+| GET | /api/f/[slug]/meta | public | — | `{ title, fields, settings }` (no responses) |
+| GET | /api/templates | session | — | Template[] |
+| POST | /api/templates/[id]/clone | session | — | Form (cloned from template) |
+| GET | /api/admin/users | admin | — | User[] |
+| PATCH | /api/admin/users/[id] | admin | `{ suspended?: boolean }` | User |
+| DELETE | /api/admin/users/[id] | admin | — | `{ ok: true }` |
+| GET | /api/admin/forms | admin | — | Form[] (all users) |
+| DELETE | /api/admin/forms/[id] | admin | — | `{ ok: true }` |
 
 ---
 
 ## Env Vars
 
-| Variable | Required | Description |
-|---|---|---|
-| `DATABASE_URL` | ✅ | Neon pooled connection |
-| `DATABASE_URL_UNPOOLED` | ✅ | Neon direct (migrations) |
-| `NEXT_PUBLIC_APP_URL` | ✅ | `https://formix.vercel.app` |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | ✅ | Clerk pk |
-| `CLERK_SECRET_KEY` | ✅ | Clerk sk |
-| `CLERK_WEBHOOK_SECRET` | ✅ | Clerk webhook signing |
-| `CLOUDINARY_CLOUD_NAME` | Phase 7 | |
-| `CLOUDINARY_API_KEY` | Phase 7 | |
-| `CLOUDINARY_API_SECRET` | Phase 7 | |
-| `RESEND_API_KEY` | Phase 7 | |
-| `RESEND_FROM_EMAIL` | Phase 7 | `notify@formix.app` |
+| Name | Required | Description | Example |
+|---|---|---|---|
+| DATABASE_URL | yes | Neon pooled connection | `postgresql://...?sslmode=require` |
+| DATABASE_URL_UNPOOLED | yes | Neon direct (migrations) | `postgresql://...?sslmode=require` |
+| BETTER_AUTH_SECRET | yes | Session signing secret (32+ chars) | `openssl rand -base64 32` |
+| BETTER_AUTH_URL | yes | Public app URL | `https://formify.vercel.app` |
+| NEXT_PUBLIC_APP_URL | yes | Same, client-readable | `https://formify.vercel.app` |
+| RESEND_API_KEY | yes | Transactional email | `re_...` |
+| CLOUDINARY_CLOUD_NAME | yes | Media uploads | `mycloud` |
+| CLOUDINARY_API_KEY | yes | Cloudinary auth | `123456789` |
+| CLOUDINARY_API_SECRET | yes | Cloudinary auth | `abc...` |
+| UPSTASH_REDIS_REST_URL | yes | Rate limiting | `https://....upstash.io` |
+| UPSTASH_REDIS_REST_TOKEN | yes | Rate limiting | `AX...` |
+| ADMIN_EMAILS | yes | Comma-separated admin email list | `fahim@example.com` |
+| LEMON_SQUEEZY_API_KEY | no | Stubbed — do not wire until public launch | `eyJ...` |
+| LEMON_SQUEEZY_WEBHOOK_SECRET | no | Stubbed — do not wire until public launch | `lsws_...` |
 
 ---
 
-## Phases & Timeline
+## Timeline / Phases
 
-| Phase | Name | Status | Key Deliverables |
-|---|---|---|---|
-| 1 | Foundation | ✅ | Next.js 16, 5-table Drizzle schema, Clerk auth + webhook, middleware, layouts, API stubs |
-| 2 | Form Builder | ✅ | FieldPalette, BuilderCanvas (dnd-kit), FieldBlock (16 types + previews), FieldEditor, duplicate field, settings page, Button/Select/Textarea primitives |
-| 3 | Public Form | ✅ | FormRenderer (all 16 types, custom radio/checkbox cards, star rating, yes_no, file zone), client + server validation, POST /api/submissions, success/redirect |
-| 4 | Responses Dashboard | ✅ | ResponsesClient (Responses + Summary tabs), SubmissionDrawer (side panel, all types rendered, inline delete), ResponseSummary (bar charts, star dist, avg/min/max), copy link |
-| 5 | Export Engine | ✅ | CSV + JSON (native), XLSX (SheetJS 2-sheet, frozen headers), PDF (jspdf dark theme, accent bar, page numbers) |
-| 6 | Admin Dashboard | ✅ | Platform stats (30d/7d growth), Users table (search/filter/badges), AdminUserDrawer (role/plan/active toggle), All Forms audit, admin sidebar nav |
-| 7 | Email + File Upload | ✅ | Resend notification on submission (dark HTML email, field preview, fire-and-forget), Cloudinary upload for file_upload field (POST /api/upload, real-time progress, error state, clickable URL) |
-| 8 | Landing Page | ✅ | Hero, features, pricing (free/pro), CTA |
-| 9 | Polish & Deploy | ✅ | OG image, error boundaries, loading skeletons, rate limiting, Vercel prod |
+### Phase 0 — Repo & Foundation
+Status: `[ ]` pending
+
+- [ ] Repo created, Vercel + Cloudflare connected
+- [ ] Next.js 16 scaffold with Tailwind v4, TypeScript strict
+- [ ] `app/globals.css` with Ink & Signal tokens
+- [ ] `lib/db/schema.ts` — all tables defined
+- [ ] `lib/db/index.ts` — lazy getDb() singleton
+- [ ] Drizzle migrations pushed
+- [ ] Better Auth configured (email/password, role: user|admin, plan column)
+- [ ] `wrangler.jsonc` + `open-next.config.ts` for Cloudflare Workers
+- [ ] `CLAUDE.md` pointer file
+
+### Phase 1 — Auth & Shell
+Status: `[ ]` pending
+
+- [ ] `/login`, `/signup`, `/forgot-password`, `/reset-password` pages
+- [ ] Better Auth email verification via Resend
+- [ ] Dashboard shell layout with sidebar nav
+- [ ] proxy.ts protecting `/dashboard/*` and `/admin/*`
+- [ ] Admin role check — `ADMIN_EMAILS` env var seeds admin on first login
+
+### Phase 2 — Form Builder
+Status: `[ ]` pending
+
+- [ ] `/dashboard/forms` — forms list with search, filter, sort
+- [ ] `/dashboard/forms/new` — drag-and-drop builder
+  - [ ] Field types: short text, long text, multiple choice, checkbox, dropdown, date, file upload, section break
+  - [ ] Conditional logic (if Q3 = X, skip to Q7)
+  - [ ] Real-time preview panel (right side)
+  - [ ] Slug editor with uniqueness check
+  - [ ] Publish toggle
+- [ ] `/dashboard/forms/[id]` — edit existing form
+- [ ] `/dashboard/templates` — template library, clone into builder
+
+### Phase 3 — Form Fill (Public)
+Status: `[ ]` pending
+
+- [ ] `/f/[slug]` — respondent-facing fill page
+  - [ ] Progress bar (if enabled in settings)
+  - [ ] Quiz mode: upfront warning banner if focus monitoring is active
+  - [ ] Tab-switch detection: `visibilitychange` + `blur` events
+    - Violation 1: warning overlay ("Please stay on this tab")
+    - Violation 2: flag logged to response
+    - Violation 3: auto-submit with violation record
+  - [ ] Threshold configurable per form (1/2/3 violations before auto-submit)
+  - [ ] File upload via Cloudinary signed upload
+  - [ ] Rate limiting on submission endpoint via Upstash Redis
+- [ ] `/f/[slug]/submitted` — thank you page with optional redirect URL
+
+### Phase 4 — Responses & Analytics
+Status: `[ ]` pending
+
+- [ ] `/dashboard/forms/[id]/responses` — response table
+  - [ ] Per-response row: answers, submitted at, violation count
+  - [ ] Summary charts: pie (MCQ), bar (rating), text list (open-ended)
+  - [ ] Export: CSV, Excel (.xlsx), PDF, Google Sheets link
+  - [ ] Soft-delete responses (owner only)
+- [ ] `/dashboard/analytics` — aggregate across all forms
+  - [ ] Total submissions over time (line chart)
+  - [ ] Top forms by response count
+  - [ ] Average completion rate
+
+### Phase 5 — Form Settings
+Status: `[ ]` pending
+
+- [ ] `/dashboard/forms/[id]/settings`
+  - [ ] Quiz mode toggle
+  - [ ] Tab-switch threshold (1 / 2 / 3 violations)
+  - [ ] Form password protection
+  - [ ] Response deadline (close form after date)
+  - [ ] Custom thank-you message + redirect URL
+  - [ ] Slug editor
+  - [ ] Delete form (soft delete with confirmation)
+
+### Phase 6 — Admin Panel
+Status: `[ ]` pending
+
+- [ ] `/admin` — platform stats (total users, forms, responses)
+- [ ] `/admin/users` — list, suspend, delete users
+- [ ] `/admin/forms` — view all forms, delete any form
+
+### Phase 7 — Account & Polish
+Status: `[ ]` pending
+
+- [ ] `/dashboard/settings` — profile, change password, notification prefs
+- [ ] OG images per form (`/f/[slug]` → `opengraph-image.tsx`)
+- [ ] `app/sitemap.ts` — public routes only
+- [ ] `app/robots.ts`
+- [ ] Mobile responsiveness audit (especially builder + fill page)
+- [ ] `plan` column gating logic in API routes (free tier limits wired but payments NOT live)
+  - Free: 3 active forms, 100 responses per form
+  - Pro/Team: unlimited (stubbed — no upgrade flow yet)
+- [ ] Admin bypass: all plan checks short-circuit for `role: admin`
+
+### Phase 8 — Monetization Ready (NOT live — stub only)
+Status: `[ ]` pending — do not start until Fahim gives signal
+
+- [ ] Lemon Squeezy webhook handler `/api/webhooks/lemon-squeezy`
+- [ ] Upgrade flow: `/dashboard/settings` → "Upgrade" → Lemon Squeezy checkout
+- [ ] `/pricing` page
+- [ ] Plan upgrade email via Resend
 
 ---
 
 ## Next Steps
 
-1. [x] ~~Install `resend`, create `lib/resend.ts`, send email on `POST /api/submissions` when `notifyOnSubmission = true`~~
-2. [x] ~~Wire `POST /api/upload` → Cloudinary signed upload, update FormRenderer file_upload to POST blob and store URL~~
-3. [x] ~~Build `app/page.tsx` landing — hero, features grid, pricing table (free/pro), sign-up CTA~~ — hero, features grid, pricing table (free/pro), sign-up CTA
-4. [x] ~~Add `@vercel/og` OG image for `/f/[slug]` — form title + response count~~
-5. [x] ~~Add Upstash Redis rate limiting on `POST /api/submissions` (per IP, 10/min)~~
-6. [x] ~~Add Suspense + skeleton loaders to all dashboard pages~~
-7. [ ] Set all Vercel env vars, run `pnpm db:push`, configure Clerk webhook, set admin publicMetadata
+In order:
+1. Create GitHub repo `formify`, connect Vercel and Cloudflare
+2. Scaffold Next.js 16 with Tailwind v4, TypeScript strict, `wrangler.jsonc`
+3. Write `lib/db/schema.ts` — all six tables from Day 1
+4. Configure Better Auth with role + plan columns
+5. Build auth pages (login, signup, forgot/reset password)
 
 ---
 
-## Key Decisions Log
+## Notes & Decisions
 
-| Date | Decision |
-|---|---|
-| 2026-04-25 | Accent `#6366f1` (indigo) — distinct from Fahim's personal green |
-| 2026-04-25 | Clerk publicMetadata.role for admin/user — no extra DB middleware |
-| 2026-04-25 | Field options as jsonb — flexible per type |
-| 2026-04-25 | Global unique slugs for clean /f/[slug] URLs |
-| 2026-04-28 | Checkbox values → JSON.stringify(string[]) in field_responses.value |
-| 2026-04-28 | AdminUserDrawer patches immediately on toggle — no save button |
-| 2026-04-28 | Export: SheetJS server-side XLSX, jspdf server-side PDF (no browser canvas) |
+**2026-06-29.** Rebuild from scratch — original Formify predated the Citadel pipeline. No prior codebase referenced.
 
----
+**2026-06-29.** Admin is free forever, no plan gating. Plan column defaults to `free` for all users; API limit checks always short-circuit for `role: admin`. This is a permanent product decision, not a launch phase toggle.
 
-## Deployment Checklist (Operational — Vercel)
+**2026-06-29.** Monetization schema wired in Phase 7 (plan limits enforced in API), but no payment flows, no pricing page, no Lemon Squeezy until Fahim gives explicit public-launch signal. Going public = flip a flag, not a migration.
 
-### Env vars to add in Vercel dashboard
+**2026-06-29.** Tab-switch detection is deterrence, not enforcement. Marketed as "focus monitoring." Three-strike model: warn → flag → auto-submit. Threshold is creator-configurable.
 
-| Variable | Where to get it |
-|---|---|
-| `DATABASE_URL` | Neon dashboard → Connection string (pooled) |
-| `DATABASE_URL_UNPOOLED` | Neon dashboard → Connection string (direct) |
-| `NEXT_PUBLIC_APP_URL` | `https://formix.vercel.app` |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk dashboard → API Keys |
-| `CLERK_SECRET_KEY` | Clerk dashboard → API Keys |
-| `CLERK_WEBHOOK_SECRET` | Clerk dashboard → Webhooks → signing secret |
-| `CLOUDINARY_CLOUD_NAME` | Cloudinary dashboard |
-| `CLOUDINARY_API_KEY` | Cloudinary dashboard |
-| `CLOUDINARY_API_SECRET` | Cloudinary dashboard |
-| `RESEND_API_KEY` | Resend dashboard |
-| `RESEND_FROM_EMAIL` | `notify@formix.app` (verify domain first) |
-| `UPSTASH_REDIS_REST_URL` | Upstash dashboard → REST URL |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash dashboard → REST Token |
-
-### Steps after env vars are set
-
-1. Run `npx drizzle-kit push` locally with `DATABASE_URL_UNPOOLED` to push schema to Neon
-2. In Clerk dashboard → Webhooks → add endpoint: `https://formix.vercel.app/api/webhooks/clerk`
-   - Events to subscribe: `user.created`, `user.updated`, `user.deleted`
-3. Set admin role: Clerk dashboard → Users → find your user → publicMetadata → `{"role":"admin"}`
-4. Deploy to Vercel (git push to main auto-triggers deploy)
-5. Verify: sign up → dashboard loads → create form → submit → check responses → export
+**2026-06-29.** Conditional logic is in v1 builder scope — Council/Wizard flagged it as a bounce risk if missing.
