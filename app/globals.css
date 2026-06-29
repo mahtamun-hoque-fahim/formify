@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces — Ink & Signal palette */
+  --color-bg:               #0a0a0f;
+  --color-surface:          #13131c;
+  --color-surface-elevated: #1a1a28;
+  --color-border:           #1e1a30;
+
+  /* Text */
+  --color-text:             #f0eeff;
+  --color-text-muted:       #9d9ab8;
+  --color-text-faint:       #5a5875;
+
+  /* Brand */
+  --color-accent:           #6d28d9;
+  --color-accent-hover:     #7c3aed;
+  --color-accent-faint:     #6d28d91a;
+
+  /* Semantic */
+  --color-success:          #22c55e;
+  --color-warning:          #f59e0b;
+  --color-danger:           #ef4444;
+  --color-info:             #3b82f6;
+
+  /* Fonts */
+  --font-syne: 'Syne', system-ui, sans-serif;
+  --font-onest: 'Onest', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-onest);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
